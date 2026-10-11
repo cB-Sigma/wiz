@@ -29,6 +29,15 @@ type fakeLight struct {
 	on   bool
 	regs []map[string]any
 	acks int
+	// lastAck is the last syncPilot acknowledgement received.
+	lastAck map[string]any
+	// got counts requests by method; params keeps each method's last params.
+	got    map[string]int
+	params map[string]map[string]any
+	// noPower makes getPower answer "method not found"; silent lists
+	// methods the light never answers.
+	noPower bool
+	silent  map[string]bool
 }
 
 func newFakeLight(t *testing.T, mac string) *fakeLight {
@@ -41,7 +50,7 @@ func newFakeLight(t *testing.T, mac string) *fakeLight {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := &fakeLight{t: t, mac: mac, api: api, push: push, on: true}
+	l := &fakeLight{t: t, mac: mac, api: api, push: push, on: true, got: map[string]int{}, params: map[string]map[string]any{}, silent: map[string]bool{}}
 	t.Cleanup(func() { _ = api.Close(); _ = push.Close() })
 	go l.serveAPI()
 	go l.servePushAcks()
@@ -65,8 +74,29 @@ func (l *fakeLight) serveAPI() {
 			continue
 		}
 		var result any
+		var refusal map[string]any
 		l.mu.Lock()
+		l.got[m.Method]++
+		l.params[m.Method] = m.Params
+		if l.silent[m.Method] {
+			l.mu.Unlock()
+			continue
+		}
 		switch m.Method {
+		case wiz.MethodGetModelConfig:
+			result = map[string]any{"cctRange": []int{2200, 2700, 6500, 6500}, "fanSpeed": 0, "wcr": 20, "nowc": 2}
+		case wiz.MethodGetUserConfig:
+			result = map[string]any{"fadeIn": 450, "extRange": []int{2700, 6500}, "po": false}
+		case wiz.MethodGetWifiConfig:
+			result = "opaque"
+		case wiz.MethodGetPower:
+			if l.noPower {
+				refusal = map[string]any{"code": -32601, "message": "Method not found"}
+			} else {
+				result = map[string]any{"power": 61500}
+			}
+		case wiz.MethodSetUserConfig, wiz.MethodSetSystemConfig, wiz.MethodSetModelConfig, wiz.MethodReboot, wiz.MethodReset, wiz.MethodUpdateOta, wiz.MethodSetState:
+			result = map[string]any{"success": true}
 		case wiz.MethodRegistration:
 			if m.Params["register"] == true {
 				l.regs = append(l.regs, m.Params)
@@ -81,6 +111,11 @@ func (l *fakeLight) serveAPI() {
 			result = map[string]any{"success": true}
 		}
 		l.mu.Unlock()
+		if refusal != nil {
+			b, _ := json.Marshal(map[string]any{"method": m.Method, "env": "pro", "error": refusal})
+			_, _ = l.api.WriteToUDP(b, from)
+			continue
+		}
 		if result == nil {
 			continue
 		}
@@ -98,8 +133,11 @@ func (l *fakeLight) servePushAcks() {
 		}
 		var m wiz.Message
 		if json.Unmarshal(buf[:n], &m) == nil && m.Method == wiz.MethodSyncPilot && m.Result != nil {
+			var raw map[string]any
+			_ = json.Unmarshal(buf[:n], &raw)
 			l.mu.Lock()
 			l.acks++
+			l.lastAck = raw
 			l.mu.Unlock()
 		}
 	}

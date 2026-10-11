@@ -18,10 +18,19 @@ Facts from other projects
 -------------------------
 
 The vendor does not publish the local API. The method names, parameter
-names, ports, module-name classes and scene numbers this module uses are
-facts read from public descriptions, chiefly pywizlight
-(github.com/sbidy/pywizlight; MIT, Copyright (c) 2020 Stephan Traub).
-No code was taken; see PROVENANCE.md.
+names, value ranges, ports, module-name classes and scene numbers this
+module uses are facts read from these public sources. No code or prose
+was taken from any of them; see PROVENANCE.md for which fact came from
+where and the commits read.
+
+- pywizlight (github.com/sbidy/pywizlight; MIT, Copyright (c) 2020
+  Stephan Traub).
+- wiz-local-control, the vendor's own library
+  (gitlab.com/wizlighting/wiz-local-control; MIT, Copyright (c) 2018
+  WiZLighting).
+- Home Assistant's WiZ integration (github.com/home-assistant/core;
+  Apache-2.0).
+- openHAB's WiZ binding (github.com/openhab/openhab-addons; EPL-2.0).
 
 Dependencies
 ------------

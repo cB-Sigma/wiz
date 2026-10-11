@@ -43,23 +43,38 @@ func LocalIPFor(dev *net.UDPAddr) string {
 
 // Push is one datagram a device pushed to the registered address.
 type Push struct {
-	// Method is MethodSyncPilot or MethodFirstBeat.
+	// Method is MethodSyncPilot, MethodFirstBeat or MethodUpdateOta.
+	// Handlers should ignore methods they do not know: later versions may
+	// hand on more kinds.
 	Method string
 	// MAC is the device's MAC address, normalised; "" when the push did not
-	// carry a valid one.
+	// carry a valid one (updateOta progress need not carry one: tell the
+	// device by From's IP).
 	MAC string
 	// Pilot is the state a syncPilot carries.
 	Pilot Pilot
 	// From is the datagram's source. A device pushes from a port of its
 	// own, not from its API port: use PushedAddr to follow its address.
 	From *net.UDPAddr
+
+	// FwVersion is the firmware version a firstBeat carries; MatterVersion
+	// and ProductID are carried by newer devices only.
+	FwVersion     string
+	MatterVersion string
+	ProductID     *int
+	// UpdateStatus is the number an updateOta progress push carries. Its
+	// values are not publicly described.
+	UpdateStatus *int
+	// Params are the push's params as sent.
+	Params map[string]any
 }
 
 // ServePush reads pushes from conn until conn is closed and calls handle
 // for each, in order. A syncPilot is acknowledged to its sender as
-// phoneMAC before handle runs; datagrams that are not pushes (answers to
-// requests sent from conn, for example) are skipped. It returns the read
-// error that ended it.
+// phoneMAC before handle runs, echoing its id and env as the vendor's
+// own library does; datagrams that are not pushes (answers to requests
+// sent from conn, for example) are skipped. It returns the read error
+// that ended it.
 func ServePush(conn *net.UDPConn, phoneMAC string, handle func(Push)) error {
 	buf := make([]byte, 4096)
 	for {
@@ -81,15 +96,33 @@ func ServePush(conn *net.UDPConn, phoneMAC string, handle func(Push)) error {
 			if err != nil || p.MAC == "" {
 				continue
 			}
-			ack, _ := json.Marshal(map[string]any{"method": MethodSyncPilot, "env": "pro", "result": map[string]any{"mac": phoneMAC}})
+			env := m.Env
+			if env == "" {
+				env = "pro"
+			}
+			a := map[string]any{"method": MethodSyncPilot, "env": env, "result": map[string]any{"mac": phoneMAC}}
+			if m.ID != nil {
+				a["id"] = m.ID
+			}
+			ack, _ := json.Marshal(a)
 			_, _ = conn.WriteToUDP(ack, from)
-			handle(Push{Method: MethodSyncPilot, MAC: p.MAC, Pilot: p, From: from})
+			handle(Push{Method: MethodSyncPilot, MAC: p.MAC, Pilot: p, From: from, Params: m.Params})
 		case MethodFirstBeat:
-			mac := ""
+			mac, fw, matter := "", "", ""
+			var product *int
 			if m.Params != nil {
 				mac, _ = m.Params["mac"].(string)
+				fw, _ = m.Params["fwVersion"].(string)
+				matter, _ = m.Params["matterVersion"].(string)
+				product = intOf(m.Params["productId"])
 			}
-			handle(Push{Method: MethodFirstBeat, MAC: NormaliseMAC(mac), From: from})
+			handle(Push{Method: MethodFirstBeat, MAC: NormaliseMAC(mac), From: from, FwVersion: fw, MatterVersion: matter, ProductID: product, Params: m.Params})
+		case MethodUpdateOta:
+			if m.Params == nil {
+				continue // an answer to an updateOta sent from conn
+			}
+			mac, _ := m.Params["mac"].(string)
+			handle(Push{Method: MethodUpdateOta, MAC: NormaliseMAC(mac), From: from, UpdateStatus: intOf(m.Params["updateStatus"]), Params: m.Params})
 		}
 	}
 }

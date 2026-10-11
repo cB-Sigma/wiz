@@ -30,6 +30,31 @@ const (
 	MethodRegistration    = "registration"
 	MethodSyncPilot       = "syncPilot"
 	MethodFirstBeat       = "firstBeat"
+
+	// MethodSetState takes the params of setPilot but, unlike setPilot,
+	// does not switch the light on.
+	MethodSetState = "setState"
+	// Configuration (see config.go).
+	MethodGetModelConfig  = "getModelConfig"
+	MethodGetUserConfig   = "getUserConfig"
+	MethodGetWifiConfig   = "getWifiConfig"
+	MethodSetUserConfig   = "setUserConfig"
+	MethodSetSystemConfig = "setSystemConfig"
+	MethodSetModelConfig  = "setModelConfig"
+	// Maintenance (see maintenance.go). updateOta is also the method of
+	// the progress messages a device sends during a firmware update.
+	MethodReboot    = "reboot"
+	MethodReset     = "reset"
+	MethodUpdateOta = "updateOta"
+)
+
+// Error codes devices answer with (JSON-RPC style).
+const (
+	// CodeMethodNotFound: the device does not have the method, such as
+	// getPower on a device without power metering.
+	CodeMethodNotFound = -32601
+	// CodeInvalidParams: a parameter is missing or out of range.
+	CodeInvalidParams = -32602
 )
 
 // Message is one datagram of the local API.
@@ -59,6 +84,20 @@ type Pilot struct {
 	Temp    *float64 `json:"temp,omitempty"`
 	SceneID *float64 `json:"sceneId,omitempty"`
 	Speed   *float64 `json:"speed,omitempty"`
+	// Fan modules (ClassFanDim, ClassFanTW): FanState 0 off, 1 on;
+	// FanMode 1 normal, 2 breeze; FanSpeed 1 to FanSpeedMax; FanRevrs 0
+	// forward, 1 reverse. The light of a fan module keeps its own State,
+	// Dimming and Temp.
+	FanState *float64 `json:"fanState,omitempty"`
+	FanMode  *float64 `json:"fanMode,omitempty"`
+	FanSpeed *float64 `json:"fanSpeed,omitempty"`
+	FanRevrs *float64 `json:"fanRevrs,omitempty"`
+	// Ratio splits the light of a dual-head module between its up and
+	// down heads, 0 to 100.
+	Ratio *float64 `json:"ratio,omitempty"`
+	// PC is the power draw in milliwatts that newer firmware of metering
+	// devices puts in the pilot.
+	PC *float64 `json:"pc,omitempty"`
 	// Raw is every key as sent.
 	Raw map[string]any `json:"-"`
 }
@@ -82,6 +121,23 @@ type SystemConfig struct {
 	TypeID     *int   `json:"typeId,omitempty"`
 	HomeID     *int   `json:"homeId,omitempty"`
 	RoomID     *int   `json:"roomId,omitempty"`
+
+	// The fields below are filled by ParseSystemConfig only, from the keys
+	// in brackets, when the answer has them; numbers are accepted for the
+	// flags. Their meaning beyond the name is not publicly described.
+	HomeLock    *bool  `json:"-"` // homeLock
+	PairingLock *bool  `json:"-"` // pairingLock
+	Lock        *bool  `json:"-"` // lock
+	GroupID     *int   `json:"-"` // groupId
+	Ping        *int   `json:"-"` // ping
+	FwOtaStatus *int   `json:"-"` // fwOtaStatus: firmware update state, values undocumented
+	Region      string `json:"-"` // rgn
+	EWFHex      string `json:"-"` // ewfHex
+	// WhiteToColorRatio and WhiteChannels come from drvConf
+	// [ratio, channels], which firmware before 1.22 reports here instead of
+	// in getModelConfig (wcr, nowc).
+	WhiteToColorRatio *int `json:"-"`
+	WhiteChannels     *int `json:"-"`
 }
 
 // ParseSystemConfig reads a getSystemConfig result; MAC is normalised
@@ -90,6 +146,16 @@ func ParseSystemConfig(b []byte) (SystemConfig, error) {
 	var c SystemConfig
 	err := json.Unmarshal(b, &c)
 	c.MAC = NormaliseMAC(c.MAC)
+	var raw map[string]any
+	if json.Unmarshal(b, &raw) == nil {
+		c.HomeLock, c.PairingLock, c.Lock = boolOf(raw["homeLock"]), boolOf(raw["pairingLock"]), boolOf(raw["lock"])
+		c.GroupID, c.Ping, c.FwOtaStatus = intOf(raw["groupId"]), intOf(raw["ping"]), intOf(raw["fwOtaStatus"])
+		c.Region, _ = raw["rgn"].(string)
+		c.EWFHex, _ = raw["ewfHex"].(string)
+		if dc := intsOf(raw["drvConf"]); len(dc) == 2 {
+			c.WhiteToColorRatio, c.WhiteChannels = &dc[0], &dc[1]
+		}
+	}
 	return c, err
 }
 
@@ -110,34 +176,73 @@ type Class string
 
 // The classes. The module name's second underscore-separated segment
 // carries the class ("ESP01_SHRGB1C_31": RGB; "ESP56_SHTW3_01": tunable
-// white; "ESP05_SHDW9_01": dimmable white; "ESP10_SOCKET_06": plug).
+// white; "ESP05_SHDW9_01": dimmable white; "ESP10_SOCKET_06": plug;
+// "ESP03_FANDIMS_31": fan with a dimmable light; "ESP20_DDTW1_01": fan
+// with a tunable-white light).
 const (
 	ClassRGB     Class = "rgb"    // colour, tunable white, dimming, scenes
 	ClassTW      Class = "tw"     // tunable white, dimming, scenes
 	ClassDW      Class = "dw"     // dimming, a few scenes
 	ClassSocket  Class = "socket" // on and off, power where reported
+	ClassFanDim  Class = "fandim" // ceiling fan with a dimmable light
+	ClassFanTW   Class = "fantw"  // ceiling fan with a tunable-white light
 	ClassUnknown Class = "unknown"
 )
 
-// ClassOf tells the class of a module name. ok is false for a module the
-// package does not know (fans, a form it cannot read).
-func ClassOf(module string) (c Class, ok bool) {
+// segment returns the upper-cased second segment of a module name.
+func segment(module string) (string, bool) {
 	parts := strings.Split(strings.ToUpper(strings.TrimSpace(module)), "_")
 	if len(parts) < 2 || !strings.HasPrefix(parts[0], "ESP") {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// ClassOf tells the class of a module name. The second segment is checked
+// for RGB, DDTW (fan, tunable white), TW, SOCKET and FANDIM (fan,
+// dimmable), in that order, then DW. ok is false for a name that is not
+// of that form or holds none of them; pywizlight treats such a module as
+// dimmable white, this package leaves the choice to the caller.
+func ClassOf(module string) (c Class, ok bool) {
+	seg, ok := segment(module)
+	if !ok {
 		return ClassUnknown, false
 	}
-	seg := parts[1]
 	switch {
-	case strings.Contains(seg, "FAN"), strings.Contains(seg, "DDTW"):
-		return ClassUnknown, false // ceiling fans with a light: not covered
 	case strings.Contains(seg, "RGB"):
 		return ClassRGB, true
+	case strings.Contains(seg, "DDTW"):
+		return ClassFanTW, true
 	case strings.Contains(seg, "TW"):
 		return ClassTW, true
 	case strings.Contains(seg, "SOCKET"):
 		return ClassSocket, true
+	case strings.Contains(seg, "FANDIM"):
+		return ClassFanDim, true
 	case strings.Contains(seg, "DW"):
 		return ClassDW, true
+	}
+	return ClassUnknown, false
+}
+
+// ClassOfTypeID tells the class from getSystemConfig's typeId, for old
+// firmware (such as 1.8.0) that reports no module name. Only typeId 0
+// (dimmable white) is publicly described; ok is false for the others.
+func ClassOfTypeID(typeID int) (Class, bool) {
+	if typeID == 0 {
+		return ClassDW, true
+	}
+	return ClassUnknown, false
+}
+
+// ClassOfConfig tells the class from a system configuration: from the
+// module name when there is one, else from typeId.
+func ClassOfConfig(c SystemConfig) (Class, bool) {
+	if strings.TrimSpace(c.ModuleName) != "" {
+		return ClassOf(c.ModuleName)
+	}
+	if c.TypeID != nil {
+		return ClassOfTypeID(*c.TypeID)
 	}
 	return ClassUnknown, false
 }
@@ -207,7 +312,9 @@ func SceneID(name string) (int, bool) {
 	return 0, false
 }
 
-// ScenesFor lists the scene names a class of light offers.
+// ScenesFor lists the scene names a class of light offers. It is nil for
+// plugs and for the lights of fan modules, whose scene lists are not
+// publicly described.
 func ScenesFor(c Class) []string {
 	var ids []int
 	switch c {
@@ -263,10 +370,32 @@ func WithPort(addr string, port int) string {
 // ErrDevice is wrapped by errors the device returned.
 var ErrDevice = errors.New("the device refused the request")
 
+// DeviceError is the error object a device answered with. It wraps
+// ErrDevice.
+type DeviceError struct {
+	Method  string
+	Code    int // such as CodeMethodNotFound or CodeInvalidParams
+	Message string
+}
+
+func (e *DeviceError) Error() string {
+	return fmt.Sprintf("%s: %s: %d %s", ErrDevice.Error(), e.Method, e.Code, e.Message)
+}
+
+// Unwrap returns ErrDevice.
+func (e *DeviceError) Unwrap() error { return ErrDevice }
+
 // Request sends a message to a device and waits for the answer with the
 // same method, resending with a growing gap (0.75 s, doubling, at most 3 s)
 // until timeout: UDP loses datagrams and a bulb on busy Wi-Fi misses some.
+// An error answer is returned as a *DeviceError.
 func Request(ctx context.Context, addr, method string, params map[string]any, timeout time.Duration) (json.RawMessage, error) {
+	return request(ctx, addr, method, params, timeout, true)
+}
+
+// request is Request; with resend false the message is sent once and the
+// answer awaited until timeout.
+func request(ctx context.Context, addr, method string, params map[string]any, timeout time.Duration, resend bool) (json.RawMessage, error) {
 	msg := map[string]any{"method": method}
 	if params != nil {
 		msg["params"] = params
@@ -292,9 +421,11 @@ func Request(ctx context.Context, addr, method string, params map[string]any, ti
 	defer stop()
 	gap := 750 * time.Millisecond
 	buf := make([]byte, 4096)
-	for {
-		if _, err := conn.Write(b); err != nil {
-			return nil, err
+	for sent := false; ; sent = true {
+		if resend || !sent {
+			if _, err := conn.Write(b); err != nil {
+				return nil, err
+			}
 		}
 		next := time.Now().Add(gap)
 		if next.After(deadline) {
@@ -321,7 +452,7 @@ func Request(ctx context.Context, addr, method string, params map[string]any, ti
 				continue
 			}
 			if m.Error != nil {
-				return nil, fmt.Errorf("%w: %s: %d %s", ErrDevice, method, m.Error.Code, m.Error.Message)
+				return nil, &DeviceError{Method: method, Code: m.Error.Code, Message: m.Error.Message}
 			}
 			return m.Result, nil
 		}

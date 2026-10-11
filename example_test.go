@@ -41,7 +41,7 @@ func Example() {
 }
 
 func ExampleClassOf() {
-	for _, m := range []string{"ESP01_SHRGB1C_31", "ESP05_SHDW9_01", "ESP10_SOCKET_06", "ESP03_FANDIMS_01"} {
+	for _, m := range []string{"ESP01_SHRGB1C_31", "ESP05_SHDW9_01", "ESP10_SOCKET_06", "ESP03_FANDIMS_31", "ESP20_DDTW1_01", "ESP99_XYZ_01"} {
 		c, ok := wiz.ClassOf(m)
 		fmt.Println(m, c, ok)
 	}
@@ -49,5 +49,45 @@ func ExampleClassOf() {
 	// ESP01_SHRGB1C_31 rgb true
 	// ESP05_SHDW9_01 dw true
 	// ESP10_SOCKET_06 socket true
-	// ESP03_FANDIMS_01 unknown false
+	// ESP03_FANDIMS_31 fandim true
+	// ESP20_DDTW1_01 fantw true
+	// ESP99_XYZ_01 unknown false
+}
+
+func ExampleFeaturesOf() {
+	f := wiz.FeaturesOf("ESP03_FANDIMS_31")
+	fmt.Println("fan:", f.Fan, "breeze:", f.FanBreeze, "reverse:", f.FanReverse, "colour temperature:", f.ColorTemp)
+	fmt.Println("dual head:", wiz.FeaturesOf("ESP20_DHRGB_01").DualHead)
+	// Output:
+	// fan: true breeze: true reverse: true colour temperature: false
+	// dual head: true
+}
+
+// Switch a ceiling fan on at speed 3 of the speeds it reports; its light
+// is not touched.
+func ExampleFanParams() {
+	ctx := context.Background()
+	addr := "192.168.1.60:38899" // a fan module
+
+	model, _ := wiz.GetModelConfig(ctx, addr, 3*time.Second) // zero when the firmware has none
+	user, _ := wiz.GetUserConfig(ctx, addr, 3*time.Second)
+	on := true
+	params, err := wiz.FanParams{On: &on, Mode: wiz.FanModeNormal, Speed: 3}.Params(wiz.FanSpeedMax(model, user))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	_, err = wiz.Request(ctx, addr, wiz.MethodSetPilot, params, 3*time.Second)
+	fmt.Println("fan on:", err == nil)
+}
+
+func ExampleKelvinRange() {
+	model, _ := wiz.ParseModelConfig([]byte(`{"cctRange":[2200,2700,6500,6500],"fanSpeed":0}`))
+	min, max, ok := wiz.KelvinRange(model, wiz.UserConfig{})
+	fmt.Println(min, max, ok)
+	min, max, ok = wiz.KelvinRange(wiz.ModelConfig{}, wiz.UserConfig{})
+	fmt.Println(min, max, ok)
+	// Output:
+	// 2200 6500 true
+	// 2200 6500 false
 }

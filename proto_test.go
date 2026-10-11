@@ -22,7 +22,7 @@ func TestWiZModuleClasses(t *testing.T) {
 			t.Errorf("%s: %s %v, want %s", module, c, ok, want)
 		}
 	}
-	for _, module := range []string{"", "LIGHT", "ESP03_FANDIMS_01", "ESP20_DDTW1_01", "ESP99_XYZ_01", "OTHER_SHRGB_01"} {
+	for _, module := range []string{"", "LIGHT", "ESP03_FANXYZ_01", "ESP99_XYZ_01", "OTHER_SHRGB_01"} {
 		if c, ok := ClassOf(module); ok || c != ClassUnknown {
 			t.Errorf("%q: %s %v, want unknown", module, c, ok)
 		}
@@ -75,7 +75,10 @@ func TestWiZRequestResends(t *testing.T) {
 			_, _ = srv.WriteToUDP([]byte(`{"method":"setPilot","env":"pro","error":{"code":-32602,"message":"Invalid params"}}`), from)
 		}
 	}()
-	if _, err := Request(context.Background(), srv.LocalAddr().String(), MethodSetPilot, map[string]any{"dimming": 5}, 2*time.Second); !errors.Is(err, ErrDevice) {
+	_, err = Request(context.Background(), srv.LocalAddr().String(), MethodSetPilot, map[string]any{"dimming": 5}, 2*time.Second)
+	var de *DeviceError
+	if !errors.Is(err, ErrDevice) || !errors.As(err, &de) || de.Code != CodeInvalidParams || de.Method != MethodSetPilot ||
+		err.Error() != "the device refused the request: setPilot: -32602 Invalid params" {
 		t.Errorf("refusal = %v", err)
 	}
 	// Silence ends at the timeout.
