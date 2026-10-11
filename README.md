@@ -25,6 +25,31 @@ library only).
 The vendor does not publish the local API; there is no standard to cite.
 The behaviour follows public descriptions of it (see PROVENANCE.md).
 
+## Choosing a WiZ client
+
+Compared from each library's source at the versions named, in October
+2026; pywizlight is in Python and listed for reference. Check the
+projects themselves before relying on a row.
+
+| | this module | achetronic/wizgo v0.1.0 | Dadido3/D3iot wiz driver (2022 commit) | ctrox/gowiz (2021 commit) | pywizlight 0.6.6 (Python) |
+|---|---|---|---|---|---|
+| Licence | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT |
+| Last release or commit | v0.x, 2026 | tag 2023-09-19, last commit 2026-06-30 | 2022-11-23 | 2021-11-24 | 2026-08-05 |
+| Timeout on a request | yes, `context.Context` | no (the read blocks) | yes | yes | yes |
+| Resends a lost request | yes, with a growing gap | no | yes, 10 retries by default | no | yes, up to 6 sends |
+| Discovery by broadcast | yes, limited and every LAN's directed broadcast | no | no | no | yes |
+| Push registration | yes | sends the request | no | no | yes |
+| Receives syncPilot pushes | yes (`ServePush`) | no | no | no | yes |
+| Class from the module name, scenes per class | yes | yes | class for three listed products, colour set in CIE XYZ (one bulb measured); a scene list without classes | no | yes |
+| Fans | reported as unknown | no | no | no | yes |
+| Dependencies outside the standard library | lanbcast | golang.org/x/exp | the D3iot module (gonum, a screenshot package) | go.uber.org/zap | Python |
+
+Pick this module to find, control and follow WiZ devices from a Go
+service: it is the only Go client found that discovers lights and
+receives their pushes. Pick D3iot's driver when you want colours given in
+CIE XYZ on the bulb it has measured. Use pywizlight in Python or Home
+Assistant, and for fans.
+
 ## Install
 
 ```
