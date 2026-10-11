@@ -46,6 +46,8 @@ const (
 	MethodReboot    = "reboot"
 	MethodReset     = "reset"
 	MethodUpdateOta = "updateOta"
+	// MethodPulse fades the light in or out for a while (see Pulse).
+	MethodPulse = "pulse"
 )
 
 // Error codes devices answer with (JSON-RPC style).
@@ -98,6 +100,12 @@ type Pilot struct {
 	// PC is the power draw in milliwatts that newer firmware of metering
 	// devices puts in the pilot.
 	PC *float64 `json:"pc,omitempty"`
+	// Devices is the head (1 or 2) of a dual-head lamp the pilot is about,
+	// on lamps that keep a state per head (see Head and GetHeadPilot).
+	Devices *float64 `json:"devices,omitempty"`
+	// SchdPsetID is there while the light runs a Rhythm (a schedule set in
+	// the WiZ app); EffectiveSceneID then reports SceneRhythm.
+	SchdPsetID *float64 `json:"schdPsetId,omitempty"`
 	// Raw is every key as sent.
 	Raw map[string]any `json:"-"`
 }
@@ -111,6 +119,23 @@ func ParsePilot(b []byte) (Pilot, error) {
 	_ = json.Unmarshal(b, &p.Raw)
 	p.MAC = NormaliseMAC(p.MAC)
 	return p, nil
+}
+
+// SceneRhythm is the scene number of Rhythm, a schedule set in the WiZ
+// app.
+const SceneRhythm = 1000
+
+// EffectiveSceneID returns the scene the light shows: SceneRhythm while a
+// Rhythm runs (schdPsetId present, as pywizlight reads it), else sceneId;
+// 0 when the pilot carries neither.
+func (p Pilot) EffectiveSceneID() int {
+	if p.SchdPsetID != nil {
+		return SceneRhythm
+	}
+	if p.SceneID != nil {
+		return int(*p.SceneID)
+	}
+	return 0
 }
 
 // SystemConfig is the part of a getSystemConfig answer this package reads.
@@ -141,10 +166,20 @@ type SystemConfig struct {
 }
 
 // ParseSystemConfig reads a getSystemConfig result; MAC is normalised
-// ("" when it is not a MAC address).
+// ("" when it is not a MAC address). typeId, homeId and roomId are read
+// when they are numbers and left nil otherwise (pywizlight's recorded
+// answers have them redacted as strings), without an error.
 func ParseSystemConfig(b []byte) (SystemConfig, error) {
+	type plain SystemConfig
 	var c SystemConfig
-	err := json.Unmarshal(b, &c)
+	aux := struct {
+		*plain
+		TypeID any `json:"typeId"`
+		HomeID any `json:"homeId"`
+		RoomID any `json:"roomId"`
+	}{plain: (*plain)(&c)}
+	err := json.Unmarshal(b, &aux)
+	c.TypeID, c.HomeID, c.RoomID = intOf(aux.TypeID), intOf(aux.HomeID), intOf(aux.RoomID)
 	c.MAC = NormaliseMAC(c.MAC)
 	var raw map[string]any
 	if json.Unmarshal(b, &raw) == nil {

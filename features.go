@@ -23,7 +23,8 @@ type Features struct {
 	FanBreeze  bool // fanMode 2
 	FanReverse bool // fanRevrs
 	// DualHead: two light heads (DH in the second segment), whose split is
-	// set with ratio (RatioParams). Some dual-head lights do not say so in
+	// set with ratio (RatioParams), or, on lamps that keep a state per
+	// head, each set on its own (HeadParams). Some dual-head lights do not say so in
 	// their name; Home Assistant also treats a device whose pilot carries
 	// ratio (Pilot.Ratio not nil) as one.
 	DualHead bool

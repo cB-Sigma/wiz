@@ -3,6 +3,29 @@
 All notable changes to this module. Versions follow semantic versioning;
 before v1 the API may change in minor versions.
 
+## v0.3.0 (2026-10-11)
+
+### Added
+
+- Per-head control of dual-head lamps, with pywizlight 0.6.6's
+  numbering: `HeadParams`, `GetHeadPilot`, `ErrNoHeadState`,
+  `HeadFirst`/`HeadSecond`, `Pilot.Devices` and `Pilot.Head`.
+- pywizlight's colour mapping as an option: `HSToRGBWPywizlight`,
+  `RGBToRGBWPywizlight`, and `RGBCW.RGBWParams` (r, g, b and w, without
+  c).
+- `Pulse`, `PulseParams`, `MethodPulse`, `MaxPulseDelta`.
+- `Pilot.SchdPsetID`, `Pilot.EffectiveSceneID` and `SceneRhythm`.
+- The interop module: this client against the fake bulbs of pywizlight
+  0.6.6's test suite, in Docker (SIGMA_WIZ_INTEROP=1).
+- README: per-head numbering, "Not yet" (items needing hardware or a
+  vendor account), new comparison rows.
+
+### Fixed
+
+- `ParseSystemConfig` no longer returns an error when typeId, homeId or
+  roomId is not a number (pywizlight's recorded answers carry redacted
+  strings); those fields are then nil. Found by the interop test.
+
 ## v0.2.0 (2026-10-11)
 
 ### Added

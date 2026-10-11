@@ -4,10 +4,11 @@ A Go client for the local UDP API of WiZ lights and plugs; not affiliated with t
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/cB-Sigma/wiz.svg)](https://pkg.go.dev/github.com/cB-Sigma/wiz) [![test](https://github.com/cB-Sigma/wiz/actions/workflows/test.yml/badge.svg)](https://github.com/cB-Sigma/wiz/actions/workflows/test.yml) [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE) [![Go](https://img.shields.io/badge/go-1.22-00ADD8.svg)](go.mod)
 
-Requests with resends, light, fan and plug state, configuration,
-maintenance (reboot, factory reset, firmware update), module classes and
-their features, built-in scenes, broadcast discovery, and push
-registration with the pushes the devices send. No cloud account, no cgo.
+Requests with resends, light, fan and plug state, per-head control of
+dual-head lamps, configuration, maintenance (reboot, factory reset,
+firmware update), pulse, module classes and their features, built-in
+scenes, broadcast discovery, and push registration with the pushes the
+devices send. No cloud account, no cgo.
 The only dependency outside the standard library is
 [lanbcast](https://github.com/cB-Sigma/lanbcast) (Apache-2.0, standard
 library only).
@@ -18,10 +19,12 @@ library only).
 |---|---|
 | getPilot, setPilot and setState (state, dimming, r/g/b, c/w, temp, sceneId, speed, ratio, the fan keys); setState sets the same keys without switching the light on | yes; any other method can be sent with `Request` |
 | Module classes | colour (RGB), tunable white, dimmable white, plug, ceiling fan with a dimmable light (FANDIM), ceiling fan with a tunable-white light (DDTW); `ClassOfTypeID` for old firmware without a module name |
-| Colour from hue and saturation or RGB | `HSToRGBCW`, `RGBToRGBCW`: our own mapping to r, g, b and the two white LEDs (the grey part goes to the white LEDs), not a measured colour model |
+| Colour from hue and saturation or RGB | `HSToRGBCW`, `RGBToRGBCW`: our own mapping to r, g, b and the two white LEDs (the grey part goes to the white LEDs); `HSToRGBWPywizlight`, `RGBToRGBWPywizlight` with `RGBWParams` (v0.3.0): pywizlight's mapping (r, g, b and the warm white LED), checked against pywizlight 0.6.6 to within one step per channel. Neither is a measured colour model |
 | Features per module (`FeaturesOf`) | brightness, colour, colour temperature, scenes, fan, breeze mode, reverse, dual head |
 | Fans | yes: fanState, fanMode (normal, breeze), fanSpeed checked against the device's number of speeds, fanRevrs (`FanParams`, `FanSpeedMax`) |
-| Dual-head lamps | the up/down split (`ratio`, `RatioParams`); per-head control (the `devices` key seen in pywizlight's development branch) is not implemented, as its numbering is not consistently described |
+| Dual-head lamps | the up/down split (`ratio`, `RatioParams`); per-head control (v0.3.0): `HeadParams` (setPilot to head 1 or 2), `GetHeadPilot` (one head's state), `Pilot.Head` (the head of a push or answer), with pywizlight 0.6.6's numbering (see below) |
+| Pulse | `Pulse`, `PulseParams` (v0.3.0): delta -100 to 100, duration in milliseconds, as pywizlight's README describes; sent once |
+| Rhythm | `Pilot.SchdPsetID` and `EffectiveSceneID` (v0.3.0): `SceneRhythm` (1000) while a Rhythm runs |
 | Power | getPower in milliwatts (`GetPower`), `pc` in the pilot on newer firmware; devices without metering answer "method not found"; there is no energy counter in the local API |
 | Configuration | getSystemConfig (with locks, group, region, drvConf, fwOtaStatus), getModelConfig, getUserConfig, the kelvin range (`KelvinRange`), setUserConfig with the params the vendor's library describes, getWifiConfig as sent |
 | Factory settings | setSystemConfig and setModelConfig with params as given: they can misconfigure the driver, so there are no helpers that pick values |
@@ -53,12 +56,44 @@ The behaviour follows public descriptions of it (see PROVENANCE.md).
   public sign-up for one, so it cannot be implemented or tested without a
   vendor account.
 - **The consumer WiZ cloud.** No public API for it was found.
-- **pulse and other named-only methods** (getDevInfo and others): public
-  descriptions name them without parameters that could be checked.
-  `Request` sends them as given.
+- **Named-only methods** (getDevInfo, setDevInfo, setSchd, setSchdPset,
+  setFavs and the sync* pushes other than syncPilot): public descriptions
+  name them without parameters that could be checked. `Request` sends
+  them as given. pulse has described parameters and is implemented
+  (v0.3.0).
 - **Meanings not described anywhere public**: the user config's `po`, the
   values of `startupMode`, and the content of getWifiConfig (openHAB notes
   an encrypted string, unverified). They are passed through as sent.
+
+### Per-head numbering of dual-head lamps
+
+pywizlight 0.6.6 (released 2026-08-05) controls the heads of dual-head
+lamps that keep a state per head; its pull request says this was checked
+on two such lamps with firmware 1.38.0. This module follows the same
+numbering: heads are 1 and 2; setPilot and setState carry the head in
+`devices` (1 or 2); a getPilot for one head carries `devices` 0 or 1 (the
+head less one) and the answer carries the head (1 or 2); pushes about one
+head carry the head (1 or 2). Firmware without a state per head ignores
+the selector and answers untagged (`GetHeadPilot` returns
+`ErrNoHeadState`). pywizlight also accepts 3 in `devices` without
+describing it; this module does not send it. Nothing here has been
+checked against a real dual-head lamp.
+
+### Not yet
+
+These need hardware or a vendor account, so they are not in v0.3.0:
+
+- **A run against real devices** of discovery, pushes, tunable-white and
+  dimmable-white bulbs, plugs, fans, dual-head lamps (ratio and per
+  head), pulse and the v0.2.0 calls, with captures to settle the
+  simulator's guesses. Needs the devices.
+- **Wi-Fi setup of a new device**: needs a capture of the WiZ app setting
+  one up (see above).
+- **A measured colour model** (colours given in CIE XYZ, as D3iot has for
+  one bulb): needs a colorimeter and bulbs of each kind.
+- **WiZ Pro (GraphQL)**: needs a client ID issued by WiZ (see above).
+
+### Ranges
 
 Ranges, as public descriptions give them (they disagree in places, so
 this package checks only where stated): dimming 1 to 100 (the vendor's
@@ -74,7 +109,7 @@ Compared from each library's source at the versions named, in October
 2026; pywizlight is in Python and listed for reference. Check the
 projects themselves before relying on a row.
 
-| | this module | achetronic/wizgo v0.1.0 | Dadido3/D3iot wiz driver (2022 commit) | ctrox/gowiz (2021 commit) | pywizlight 0.6.6 (Python) |
+| | this module (v0.3.0) | achetronic/wizgo v0.1.0 | Dadido3/D3iot wiz driver (2022 commit) | ctrox/gowiz (2021 commit) | pywizlight 0.6.6 (Python) |
 |---|---|---|---|---|---|
 | Licence | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT |
 | Last release or commit | v0.x, 2026 | tag 2023-09-19, last commit 2026-06-30 | 2022-11-23 | 2021-11-24 | 2026-08-05 |
@@ -85,18 +120,21 @@ projects themselves before relying on a row.
 | Receives syncPilot pushes | yes (`ServePush`) | no | no | no | yes |
 | Class from the module name, scenes per class | yes | yes | class for three listed products, colour set in CIE XYZ (one bulb measured); a scene list without classes | no | yes |
 | Fans | yes (v0.2.0) | no | no | no | yes |
+| Per-head control of dual-head lamps | yes (v0.3.0), pywizlight's numbering, not checked on a lamp | no | no | no | yes (0.6.6; its author checked two lamps) |
+| pywizlight's hue and saturation mapping | yes (v0.3.0), within one step of pywizlight | no | no | no | its own |
+| Pulse | yes (v0.3.0) | no | no | no | no (named in its README only) |
+| Checked against an independent implementation | pywizlight's fake bulbs (v0.3.0) | no | no | no | its own fake bulbs |
 | Dependencies outside the standard library | lanbcast | golang.org/x/exp | the D3iot module (gonum, a screenshot package) | go.uber.org/zap | Python |
 
-Pick this module to find, control and follow WiZ devices, fans included,
-from a Go service: it is the only Go client found that discovers lights
-and receives their pushes. Pick D3iot's driver when you want colours
-given in CIE XYZ on the bulb it has measured. Use pywizlight in Python or
-Home Assistant, when you want its own conversion of hue and saturation to
-the bulbs' channels (this module has a simpler one of its own,
-`HSToRGBCW` and `RGBToRGBCW`, not a measured colour model), or for
-per-head control of dual-head lamps (in its development branch).
+Pick this module to find, control and follow WiZ devices, fans and
+dual-head lamps included, from a Go service: it is the only Go client
+found that discovers lights and receives their pushes. Pick D3iot's
+driver when you want colours given in CIE XYZ on the bulb it has
+measured. Use pywizlight in Python or Home Assistant, or when you need
+per-head control that someone has run on a real lamp: pywizlight's author
+did, this module has not.
 
-Beyond the table, this module (v0.2.0) also has the configuration,
+Beyond the table, this module (since v0.2.0) also has the configuration,
 reboot, factory reset and firmware-update calls; of the others, only
 pywizlight was checked for them (it has getModelConfig, getUserConfig,
 reboot and reset, and no firmware update).
@@ -193,7 +231,7 @@ your handler does not know.
 
 | Package | What it does |
 |---|---|
-| `wiz` (module root) | `Request` (one method, resent with a growing gap until the timeout; refusals as `*DeviceError`), `Pilot`/`ParsePilot`, `SystemConfig`/`ParseSystemConfig`, `ClassOf`/`ClassOfTypeID`/`ClassOfConfig`, `FeaturesOf`, `FanParams`/`FanSpeedMax`, `RatioParams`, `HSToRGBCW`/`RGBToRGBCW`, `ModelConfig`/`UserConfig` with `GetModelConfig`/`GetUserConfig`/`KelvinRange`, `SetUserConfig`, `SetSystemConfig`/`SetModelConfig` (raw, dangerous), `GetWifiConfig`, `GetPower`, `Reboot`, `Reset`, `UpdateFirmware`, `Scenes`/`SceneID`/`SceneName`/`ScenesFor`/`HasScene`, `Discover`, `Register`, `ServePush`, `PushedAddr`, `LocalIPFor` |
+| `wiz` (module root) | `Request` (one method, resent with a growing gap until the timeout; refusals as `*DeviceError`), `Pilot`/`ParsePilot`, `SystemConfig`/`ParseSystemConfig`, `ClassOf`/`ClassOfTypeID`/`ClassOfConfig`, `FeaturesOf`, `FanParams`/`FanSpeedMax`, `RatioParams`, `HSToRGBCW`/`RGBToRGBCW`, `ModelConfig`/`UserConfig` with `GetModelConfig`/`GetUserConfig`/`KelvinRange`, `SetUserConfig`, `SetSystemConfig`/`SetModelConfig` (raw, dangerous), `GetWifiConfig`, `GetPower`, `Reboot`, `Reset`, `UpdateFirmware`, `HeadParams`/`GetHeadPilot`/`Pilot.Head`, `HSToRGBWPywizlight`/`RGBToRGBWPywizlight`/`RGBWParams`, `Pulse`/`PulseParams`, `Pilot.EffectiveSceneID`, `Scenes`/`SceneID`/`SceneName`/`ScenesFor`/`HasScene`, `Discover`, `Register`, `ServePush`, `PushedAddr`, `LocalIPFor` |
 
 Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -213,17 +251,50 @@ written for; they have no meaning outside it.
 
 ### Interop tested against
 
-The automated tests run against a fake light and the simulator in
-wiz-sim, both written from the same descriptions as the client; that is
-not independent.
+The unit tests run against a fake light and the simulator in wiz-sim,
+both written from the same descriptions as the client; that is not
+independent.
+
+Independent (v0.3.0, 2026-10-11): the `interop` module runs the fake
+bulbs that pywizlight 0.6.6's own test suite ships
+(pywizlight/tests/fake_bulb.py, installed with the package from PyPI, in
+python:3.12.10-slim under Docker) and drives them with this client: ten
+recorded devices (two colour bulbs, a tunable-white and a dimmable-white
+bulb, three plugs: with a power reading, with an answer that carries
+none, and without metering; a fan, a dual-head lamp, and firmware 1.8.0
+without a module name) plus one that answers broken JSON. The
+system, model and user configuration, the class, features, kelvin range
+and fan speeds agree with pywizlight's own reading of each bulb; the
+pilot, setPilot (colour, ratio, fan), power (with and without a reading,
+and without metering), registration and the discovery answer work, and
+the stray and broken answers the fakes send are skipped. It found one
+fault, fixed in v0.3.0: a system configuration whose homeId was not a
+number made `ParseSystemConfig` return an error. pywizlight's fakes
+answer only seven methods and push nothing, so pushes, setState, the
+configuration writes, maintenance, pulse and per-head control are not
+covered by this check. Run it with
+
+```
+cd interop && SIGMA_WIZ_INTEROP=1 GOWORK=off go test -v ./...
+```
+
+wiz-sim's interop module also runs pywizlight 0.6.6's client against
+the simulator and checks that `HSToRGBWPywizlight` and
+`RGBToRGBWPywizlight` give what pywizlight sends, to within one step per
+channel (six hue and saturation pairs, three RGB colours).
 
 Checked by hand against a real WiZ colour bulb on a home LAN (October
 2026, through SigmaM2M): colour, dimming at 20% and 100%, off and on, and
 scene selection. Discovery, pushes, tunable-white and dimmable-white
 bulbs and plugs have not been checked against real devices, and nothing
 added in v0.2.0 has (fans, dual-head ratio, setState, the configuration
-calls, reboot, reset, firmware update, power in the pilot): those follow
-the public descriptions and are tested only against the simulator.
+calls, reboot, reset, firmware update, power in the pilot), nor anything
+added in v0.3.0 (per-head control, pulse, the pywizlight colour
+mapping): those follow the public descriptions and are tested against
+the simulator and, where stated above, pywizlight's fakes.
+
+The pywizlight package and its fake bulbs are fetched from PyPI when the
+interop test runs; no pywizlight code is kept in this repository.
 
 ## Related repositories
 

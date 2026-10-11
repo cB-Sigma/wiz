@@ -38,6 +38,9 @@ type fakeLight struct {
 	// methods the light never answers.
 	noPower bool
 	silent  map[string]bool
+	// heads makes getPilot with a devices selector (0 or 1) answer tagged
+	// with the head (1 or 2), as a dual-head lamp with a state per head.
+	heads bool
 }
 
 func newFakeLight(t *testing.T, mac string) *fakeLight {
@@ -95,7 +98,7 @@ func (l *fakeLight) serveAPI() {
 			} else {
 				result = map[string]any{"power": 61500}
 			}
-		case wiz.MethodSetUserConfig, wiz.MethodSetSystemConfig, wiz.MethodSetModelConfig, wiz.MethodReboot, wiz.MethodReset, wiz.MethodUpdateOta, wiz.MethodSetState:
+		case wiz.MethodSetUserConfig, wiz.MethodSetSystemConfig, wiz.MethodSetModelConfig, wiz.MethodReboot, wiz.MethodReset, wiz.MethodUpdateOta, wiz.MethodSetState, wiz.MethodPulse:
 			result = map[string]any{"success": true}
 		case wiz.MethodRegistration:
 			if m.Params["register"] == true {
@@ -103,7 +106,11 @@ func (l *fakeLight) serveAPI() {
 			}
 			result = map[string]any{"mac": l.mac, "success": true}
 		case wiz.MethodGetPilot:
-			result = map[string]any{"mac": l.mac, "state": l.on, "sceneId": 0}
+			p := map[string]any{"mac": l.mac, "state": l.on, "sceneId": 0}
+			if sel, ok := m.Params["devices"].(float64); ok && l.heads {
+				p["devices"] = sel + 1
+			}
+			result = p
 		case wiz.MethodSetPilot:
 			if s, ok := m.Params["state"].(bool); ok {
 				l.on = s

@@ -40,11 +40,51 @@ WiZLighting); it was read for facts the same way and no code was taken
 from it. A line-by-line comparison of our code with these sources was not
 needed, at the user's direction: nothing was translated from them.
 
+### v0.3.0 (2026-10-11)
+
+v0.3.0 adds per-head control of dual-head lamps, pywizlight's colour
+mapping as an option, pulse, Rhythm in the pilot, a more tolerant
+`ParseSystemConfig`, and the interop module. The facts were read on
+2026-10-11 from pywizlight 0.6.6, the sdist from PyPI (the same code as
+master c6ce9d97, which is the 0.6.6 release; the only other live branch
+with dual-head work, feat/dual_head at 33408d17, is older), for facts
+only:
+
+- Per-head numbering (heads.go): bulb.py and
+  tests/test_bulb_rgbww_dual.py. A getPilot for one head carries devices
+  0 or 1; answers and pushes about one head carry 1 or 2; setPilot and
+  turn_on/turn_off pass the head as given (its builder accepts 1 to 3).
+  pywizlight's pull request #209 says it was checked on two dual-head
+  lamps with firmware 1.38.0. The earlier note that this numbering was
+  only in a development branch was out of date: it shipped in 0.6.6.
+- Colour mapping (color_pywizlight.go): rgbcw.py. Its behaviour (three
+  primaries 120 degrees apart, a hue between two split in the
+  proportions that add up to its direction and scaled so the larger is
+  full, the warm white LED at 128 below saturation 0.5 and fading to 0
+  above, channels cut to whole numbers, the cool white LED unused) is
+  described in our own words in the file and written in our own code: the
+  split is solved directly instead of by pywizlight's ray-and-line
+  intersection, so the arithmetic differs and results can differ by one
+  step at the cut. The interop test compares the two.
+- pulse (pulse.go): README.md, which gives delta and duration with their
+  ranges and says a pulse longer than two minutes repeats. Sending it
+  once is our choice.
+- Rhythm (proto.go): bulb.py reads schdPsetId as scene 1000.
+- ParseSystemConfig: the fake bulbs' recorded answers carry homeId and
+  roomId as redacted strings; the client now reads these fields only
+  when they are numbers.
+
+The interop module runs pywizlight's fake bulbs
+(pywizlight/tests/fake_bulb.py, shipped in the 0.6.6 package) in Docker,
+installed from PyPI at test time; testdata/fake_bulbs.py is our own
+script that starts them and relays their ports. No pywizlight code is
+kept in this repository.
+
 ## Sources
 
 | Source | Commit read | Licence |
 |---|---|---|
-| [PY] pywizlight, github.com/sbidy/pywizlight | master c6ce9d97677aab1da3a693973fb3487383f5d235 (latest tag v0.6.6) | MIT, Copyright (c) 2020 Stephan Traub |
+| [PY] pywizlight, github.com/sbidy/pywizlight | master c6ce9d97677aab1da3a693973fb3487383f5d235 (latest tag v0.6.6); for v0.3.0 the 0.6.6 sdist from PyPI | MIT, Copyright (c) 2020 Stephan Traub |
 | [HA] Home Assistant, github.com/home-assistant/core, homeassistant/components/wiz | dev 8792c68d | Apache-2.0 |
 | [OH] openHAB add-ons, github.com/openhab/openhab-addons, bundles/org.openhab.binding.wiz | main a5a74fd0 | EPL-2.0 |
 | [WZ] wiz-local-control, gitlab.com/wizlighting/wiz-local-control (the vendor's own library) | master b7bfe09f (2025-09-03) | MIT, Copyright (c) 2018 WiZLighting |
@@ -57,13 +97,14 @@ needed, at the user's direction: nothing was translated from them.
 | Configuration (config.go) | none published | PY: getModelConfig before getUserConfig, the kelvin range from extRange else cctRange as min to max, fanSpeed from either, drvConf as [ratio, white channels] on firmware before 1.22, typeId 0 as dimmable white, the field names of both answers (with sample shapes: flags as numbers, renderFactor as a list). WZ: setUserConfig params (whiteRange, extRange, pwmRange, dftDim, startupMode, userConfigTs defaulting to 0); setSystemConfig params (env, moduleName, ewf, pwmConf, drvConf, fs, systemConfigTs); setModelConfig params and which are required; getSystemConfig's fwOtaStatus. OH: getWifiConfig's result noted as an encrypted string; the 2200 to 6500 K default |
 | Maintenance, power (maintenance.go) | none published | PY: reboot and reset with empty params; getPower's result.power in milliwatts, pc in the pilot, "method not found" without metering. WZ: updateOta with fw ("default" when none) and force 0/1 |
 | Colour conversion (color.go) | the usual hue-to-RGB sextant formula and the common practice of moving an RGB colour's grey part to white LEDs | none; our own mapping, written without reading pywizlight's rgbcw.py |
+| pywizlight's colour mapping (color_pywizlight.go, v0.3.0) | none | PY 0.6.6 rgbcw.py: the behaviour described in v0.3.0 above; our own code |
+| Per-head control, pulse, Rhythm (heads.go, pulse.go, proto.go, v0.3.0) | none published | PY 0.6.6: the devices numbering (bulb.py, its dual-head tests), pulse's params (README.md), schdPsetId as Rhythm (bulb.py) |
 | Broadcast helper (the lanbcast module) | none | none; our own code |
 
 Not implemented, because no public source describes enough to implement
 it honestly: Wi-Fi setup (setWifiConfig is only a name in PY's README
-and OH), pulse and other methods named without parameters, per-head
-control of dual-head lamps (PY's development branch numbers the heads
-inconsistently), WiZ Pro (a GraphQL cloud API at
+and OH), methods named without parameters (getDevInfo, setDevInfo,
+setSchd, setSchdPset, setFavs), WiZ Pro (a GraphQL cloud API at
 docs.pro.wizconnected.com that needs a client ID from WiZ) and the
 consumer WiZ cloud (no public API found).
 
@@ -80,6 +121,9 @@ in the same form:
 - `ClassOf` in proto.go and `FeaturesOf` in features.go: the
   module-name segments that tell the class, their order, and the
   features per class.
+- color_pywizlight.go: it reproduces the behaviour of pywizlight's
+  rgbcw.py on purpose (the two constants 128 and 1e-5 come from it); the
+  code and its arithmetic are our own.
 
 A line-by-line comparison with pywizlight's source has not been done.
 

@@ -32,6 +32,17 @@ where and the commits read.
   Apache-2.0).
 - openHAB's WiZ binding (github.com/openhab/openhab-addons; EPL-2.0).
 
+color_pywizlight.go reproduces the behaviour of pywizlight's colour
+mapping (rgbcw.py) in our own code; see PROVENANCE.md.
+
+Test peers
+----------
+
+The interop module (tests only, not part of the published package)
+installs pywizlight 0.6.6 from PyPI in a Docker container at test time
+and runs the fake bulbs of its test suite; no pywizlight code is kept in
+this repository.
+
 Dependencies
 ------------
 
