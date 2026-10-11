@@ -1,0 +1,37 @@
+wiz (a Go client for the WiZ local UDP API)
+Copyright 2026 Abhinav Gautam
+
+This module is licensed under the Apache License, Version 2.0 (LICENSE).
+
+The code was written for SigmaM2M, a oneM2M platform, from public
+descriptions of the WiZ local API (PROVENANCE.md). It contains no code
+from other projects. proto.go and proto_test.go come from SigmaM2M and
+carry no per-file copyright header, the convention of the code they come
+from; the copyright line above covers them. Files added for this module carry
+"Copyright 2026 Abhinav Gautam" and "SPDX-License-Identifier: Apache-2.0".
+
+WiZ is a trademark of its owner. This module is not made, endorsed or
+supported by the owner of the WiZ products; the name is used only to say
+which devices it talks to.
+
+Facts from other projects
+-------------------------
+
+The vendor does not publish the local API. The method names, parameter
+names, ports, module-name classes and scene numbers this module uses are
+facts read from public descriptions, chiefly pywizlight
+(github.com/sbidy/pywizlight; MIT, Copyright (c) 2020 Stephan Traub).
+No code was taken; see PROVENANCE.md.
+
+Dependencies
+------------
+
+- The Go standard library (BSD-3-Clause, Copyright The Go Authors).
+- github.com/cB-Sigma/lanbcast (LAN broadcast helper; Copyright 2026
+  Abhinav Gautam, Apache-2.0, standard library only).
+
+Test data
+---------
+
+Every MAC address, module name, firmware version and address in the
+tests and examples is a made-up demo value.
